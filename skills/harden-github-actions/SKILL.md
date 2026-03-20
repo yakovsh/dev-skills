@@ -32,16 +32,16 @@ git branch   # should show the feature branch, not main
 
 Always work in this order. Each step is a separate commit.
 
-1. **Pin actions** with `pinact run`
-2. **Address zizmor warnings** by severity (high → medium → low → informational).
-3. **Ensure all permissions are job-level.** Check every workflow file for top-level
+1. **Add zizmor CI job** using the standard template
+2. **Configure dependabot** to batch github-actions updates weekly
+3. **Add local workflow linting** to `bin/setup` and `bin/ci` (see below). Skip if these
+   scripts don't exist in the project.
+4. **Pin actions** with `pinact run`
+5. **Address zizmor warnings** by severity (high → medium → low → informational).
+6. **Ensure all permissions are job-level.** Check every workflow file for top-level
    `permissions:` blocks. Replace with `permissions: {}` and add per-job permissions.
    This goes beyond what zizmor flags — zizmor misses single-job workflows. Commit.
-4. **Run actionlint** and fix any findings. Commit.
-5. **Add zizmor CI job** using the standard template
-6. **Add local workflow linting** to `bin/setup` and `bin/ci` (see below). Skip if these
-   scripts don't exist in the project.
-7. **Configure dependabot** to batch github-actions updates weekly
+7. **Run actionlint** and fix any findings. Commit.
 
 ## Running pinact
 
@@ -122,8 +122,12 @@ a reason. If you can't articulate why the fix would break something, apply the f
 
 ## Standard Zizmor CI Job
 
-Add this job to the repository's main CI workflow file (often `ci.yml` or `ci-checks.yml`),
-placed near existing lint jobs (e.g., rubocop, eslint) since it's a linting concern:
+Add this job to the repository's main CI workflow file (often `ci.yml` or `ci-checks.yml`).
+
+**Placement matters.** Before inserting, find the existing lint job (rubocop, eslint,
+golangci-lint, etc.) in the workflow and place `lint-actions` immediately after it. If there
+is no lint job, place it immediately before the first test job. **Never append it to the end
+of the file** — it is a linting concern, not a test or deployment step:
 
 ```yaml
 lint-actions:
@@ -239,13 +243,15 @@ cooldown:
   semver-major-days: 7
   semver-minor-days: 3
   semver-patch-days: 2
+  default-days: 7
 
 # For github-actions (semver-granular keys are NOT supported)
 cooldown:
   default-days: 7
 ```
 
-If an ecosystem entry is missing the cooldown block, add it.
+If an ecosystem entry is missing the cooldown block, add it. If an existing cooldown block
+has different values, **override them** with the values above — these are the standard.
 
 ## Common Mistakes
 
@@ -259,9 +265,21 @@ If an ecosystem entry is missing the cooldown block, add it.
 | Fixing permissions by removing the block entirely | Move to job-level, don't remove — implicit permissions may be too broad |
 | Using `--fix` instead of `--fix=all` | Safe mode silently holds back fixes; use `--fix=all` and review the diff |
 | Committing without verifying clean zizmor output | Always re-run `zizmor --min-severity=<level> .` before committing |
-| Analyzing all findings up front before starting work | Follow the workflow order step by step — pin, then fix by severity, then CI job, then dependabot |
+| Analyzing all findings up front before starting work | Follow the workflow order step by step — CI job, dependabot, local linting, pin, then fix by severity |
 | Adding the zizmor CI job at the end of the workflow file | Place it near existing lint jobs — it's a linting concern, not a test |
 | Replacing an action with inline code for `superfluous-actions` | Always suppress — actions are more maintainable and receive upstream fixes |
 | Not specifying permissions on reusable workflow caller jobs | Caller jobs must declare permissions; reusable workflows inherit from the caller |
 | Adding tools to bin/setup when there's no bin/ci | Only add local linting if a local CI script exists to run the tools |
 | Running commands in the main repo instead of the worktree | Verify `pwd` and `git branch` before starting |
+
+## Common PR Feedback (Incorrect or Misleading)
+
+Automated reviewers (Copilot, cubic, etc.) frequently flag these. They are wrong or
+misleading — dismiss them.
+
+| Feedback | Why it's wrong |
+|----------|---------------|
+| `ruby/setup-ruby` with `bundler-cache: true` needs `actions: write` | No. Bundler cache works with `contents: read`. The cache API uses the implicit `GITHUB_TOKEN`. Do not add `actions: write`. |
+| `persist-credentials: false` will break `git fetch` / `git worktree` | Only true for private repos. All our target repos are public — unauthenticated HTTPS fetch works fine. |
+| `cooldown` is not a valid Dependabot configuration key | It is valid. GitHub added `cooldown` to Dependabot v2 config in late 2025. Copilot's training data predates this feature. |
+| Checkout version inconsistency (v3 in existing jobs vs v6 in lint-actions) | The skill pins existing versions as-is; upgrading is dependabot's job after merge. The lint-actions job template uses v6 independently. |
